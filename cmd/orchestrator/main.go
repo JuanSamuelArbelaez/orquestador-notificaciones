@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -19,6 +21,94 @@ import (
 	kafka "github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
 )
+
+const VERSION = "1.0.0"
+
+var startTime = time.Now()
+
+type HealthResponse struct {
+	Status        string `json:"status"`
+	Version       string `json:"version"`
+	Uptime        string `json:"uptime"`
+	UptimeSeconds int64  `json:"uptimeSeconds"`
+}
+
+func formatUptime(duration time.Duration) string {
+	seconds := int64(duration.Seconds())
+	days := seconds / 86400
+	hours := (seconds % 86400) / 3600
+	minutes := (seconds % 3600) / 60
+	secs := seconds % 60
+
+	if days > 0 {
+		return fmt.Sprintf("%dd %dh %dm %ds", days, hours, minutes, secs)
+	} else if hours > 0 {
+		return fmt.Sprintf("%dh %dm %ds", hours, minutes, secs)
+	} else if minutes > 0 {
+		return fmt.Sprintf("%dm %ds", minutes, secs)
+	} else {
+		return fmt.Sprintf("%ds", secs)
+	}
+}
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	uptime := time.Since(startTime)
+	response := HealthResponse{
+		Status:        "UP",
+		Version:       VERSION,
+		Uptime:        formatUptime(uptime),
+		UptimeSeconds: int64(uptime.Seconds()),
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
+func readyHandler(w http.ResponseWriter, r *http.Request) {
+	uptime := time.Since(startTime)
+	response := HealthResponse{
+		Status:        "READY",
+		Version:       VERSION,
+		Uptime:        formatUptime(uptime),
+		UptimeSeconds: int64(uptime.Seconds()),
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
+func liveHandler(w http.ResponseWriter, r *http.Request) {
+	uptime := time.Since(startTime)
+	response := HealthResponse{
+		Status:        "LIVE",
+		Version:       VERSION,
+		Uptime:        formatUptime(uptime),
+		UptimeSeconds: int64(uptime.Seconds()),
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
+func startHealthServer(port string) *http.Server {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", healthHandler)
+	mux.HandleFunc("/health/ready", readyHandler)
+	mux.HandleFunc("/health/live", liveHandler)
+
+	server := &http.Server{
+		Addr:    ":" + port,
+		Handler: mux,
+	}
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("Error starting health server: %v", err)
+		}
+	}()
+
+	return server
+}
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -70,7 +160,19 @@ func main() {
 	}
 	consumer := kafkaPkg.NewConsumer(rCfg, proc, z)
 
-	// 7. Iniciar consumer
+	// 7. Iniciar servidor HTTP para health checks
+	healthPort := getEnv("HEALTH_PORT", "8080")
+	healthServer := startHealthServer(healthPort)
+	z.Info("health server started", zap.String("port", healthPort))
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := healthServer.Shutdown(shutdownCtx); err != nil {
+			z.Error("error shutting down health server", zap.Error(err))
+		}
+	}()
+
+	// 8. Iniciar consumer
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -80,14 +182,14 @@ func main() {
 		consumer.Start(ctx, 4) // 4 workers en paralelo
 	}()
 
-	// 8. Esperar señal para apagado
+	// 9. Esperar señal para apagado
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	<-sig
 	z.Info("shutdown requested")
 	cancel()
 
-	// 9. Cierre ordenado
+	// 10. Cierre ordenado
 	time.Sleep(3 * time.Second)
 	_ = consumer.Close()
 	_ = producer.Close()
