@@ -5,6 +5,7 @@ import (
 
 	"github.com/andrew/orquestador-notificacion/internal/domain"
 	"github.com/andrew/orquestador-notificacion/internal/service"
+	"github.com/andrew/orquestador-notificacion/internal/logger"
 	"go.uber.org/zap"
 )
 
