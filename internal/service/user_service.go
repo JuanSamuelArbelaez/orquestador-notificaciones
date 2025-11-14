@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 
-	"go.uber.org/zap"
+	"github.com/andrew/orquestador-notificacion/internal/logger"
 )
 
 type UserService interface {
@@ -15,11 +15,11 @@ type UserService interface {
 
 type userServiceImpl struct {
 	producer Producer // usa la interfaz, no la implementación concreta
-	logger   *zap.Logger
+	logger   *logger.Logger
 }
 
-func NewUserService(producer Producer, logger *zap.Logger) UserService {
-	return &userServiceImpl{producer: producer, logger: logger}
+func NewUserService(producer Producer, log *logger.Logger) UserService {
+	return &userServiceImpl{producer: producer, logger: log}
 }
 
 func (s *userServiceImpl) OnUserRegistered(ctx context.Context, id int, email, name, phone, url string) error {
@@ -32,15 +32,20 @@ func (s *userServiceImpl) OnUserRegistered(ctx context.Context, id int, email, n
 
 	err := s.producer.SendEvent(ctx, "EMAIL", "welcome", email, data)
 	if err != nil {
-		s.logger.Error("failed to send notification", zap.Error(err))
+		s.logger.Error("Fallo al enviar notificación de bienvenida", map[string]interface{}{
+			"error": err.Error(),
+			"user_id": id,
+			"email": email,
+		})
 		return err
 	}
 
-	s.logger.Info("notification event published",
-		zap.String("type", "EMAIL"),
-		zap.String("template", "welcome"),
-		zap.String("to", email),
-	)
+	s.logger.Info("Evento de notificación de bienvenida publicado", map[string]interface{}{
+		"type":     "EMAIL",
+		"template": "welcome",
+		"to":       email,
+		"user_id":  id,
+	})
 	return nil
 }
 
@@ -54,14 +59,21 @@ func (s *userServiceImpl) SendNotification(ctx context.Context, id int, email, n
 
 	err := s.producer.SendEvent(ctx, channel, template, to, data)
 	if err != nil {
-		s.logger.Error("failed to send notification", zap.Error(err))
+		s.logger.Error("Fallo al enviar notificación", map[string]interface{}{
+			"error":    err.Error(),
+			"channel":  channel,
+			"template": template,
+			"user_id":  id,
+		})
 		return err
 	}
 
-	s.logger.Info("notification sent",
-		zap.String("channel", channel),
-		zap.String("to", to),
-	)
+	s.logger.Info("Notificación enviada exitosamente", map[string]interface{}{
+		"channel":  channel,
+		"template": template,
+		"to":       to,
+		"user_id":  id,
+	})
 	return nil
 }
 
@@ -81,13 +93,18 @@ func (s *userServiceImpl) SendOtpRecovery(ctx context.Context, id int, email, na
 
 	err := s.producer.SendEvent(ctx, "EMAIL", "password_recovery", email, data)
 	if err != nil {
-		s.logger.Error("failed to send OTP recovery notification", zap.Error(err))
+		s.logger.Error("Fallo al enviar notificación de recuperación de contraseña", map[string]interface{}{
+			"error":   err.Error(),
+			"user_id": id,
+			"email":   email,
+		})
 		return err
 	}
 
-	s.logger.Info("OTP recovery notification sent",
-		zap.String("to", email),
-	)
+	s.logger.Info("Notificación de recuperación de contraseña enviada", map[string]interface{}{
+		"to":      email,
+		"user_id": id,
+	})
 	return nil
 }
 
@@ -100,14 +117,19 @@ func (s *userServiceImpl) OnUserVerified(ctx context.Context, id int, email, nam
 
 	err := s.producer.SendEvent(ctx, "EMAIL", "account_verified", email, data)
 	if err != nil {
-		s.logger.Error("failed to send user verified notification", zap.Error(err))
+		s.logger.Error("Fallo al enviar notificación de cuenta verificada", map[string]interface{}{
+			"error":   err.Error(),
+			"user_id": id,
+			"email":   email,
+		})
 		return err
 	}
 
-	s.logger.Info("user verified notification sent",
-		zap.String("type", "EMAIL"),
-		zap.String("template", "account_verified"),
-		zap.String("to", email),
-	)
+	s.logger.Info("Notificación de cuenta verificada enviada", map[string]interface{}{
+		"type":     "EMAIL",
+		"template": "account_verified",
+		"to":       email,
+		"user_id":  id,
+	})
 	return nil
 }

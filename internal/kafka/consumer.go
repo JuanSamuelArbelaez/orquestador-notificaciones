@@ -8,19 +8,19 @@ import (
 	"time"
 
 	"github.com/andrew/orquestador-notificacion/internal/domain"
+	"github.com/andrew/orquestador-notificacion/internal/logger"
 	"github.com/andrew/orquestador-notificacion/internal/processor"
 	"github.com/segmentio/kafka-go"
-	"go.uber.org/zap"
 )
 
 type Consumer struct {
 	reader    *kafka.Reader
 	processor *processor.Processor
-	logger    *zap.Logger
+	logger    *logger.Logger
 	shutdown  chan struct{}
 }
 
-func NewConsumer(cfg kafka.ReaderConfig, p *processor.Processor, logger *zap.Logger) *Consumer {
+func NewConsumer(cfg kafka.ReaderConfig, p *processor.Processor, log *logger.Logger) *Consumer {
 	// Configuración mejorada del Reader
 	cfg.MaxWait = 10 * time.Second
 	cfg.ReadBackoffMin = 100 * time.Millisecond
@@ -32,7 +32,7 @@ func NewConsumer(cfg kafka.ReaderConfig, p *processor.Processor, logger *zap.Log
 	return &Consumer{
 		reader:    r,
 		processor: p,
-		logger:    logger,
+		logger:    log,
 		shutdown:  make(chan struct{}),
 	}
 }
@@ -44,15 +44,21 @@ func (c *Consumer) Start(ctx context.Context, workers int) {
 }
 
 func (c *Consumer) worker(ctx context.Context, id int) {
-	c.logger.Info("starting kafka consumer worker", zap.Int("worker_id", id))
+	c.logger.Info("Iniciando worker de consumer de Kafka", map[string]interface{}{
+		"worker_id": id,
+	})
 
 	for {
 		select {
 		case <-ctx.Done():
-			c.logger.Info("worker stopping due to context cancellation", zap.Int("worker_id", id))
+			c.logger.Info("Worker deteniéndose por cancelación de contexto", map[string]interface{}{
+				"worker_id": id,
+			})
 			return
 		case <-c.shutdown:
-			c.logger.Info("worker stopping due to shutdown signal", zap.Int("worker_id", id))
+			c.logger.Info("Worker deteniéndose por señal de apagado", map[string]interface{}{
+				"worker_id": id,
+			})
 			return
 		default:
 			c.processMessage(ctx, id)
@@ -68,9 +74,10 @@ func (c *Consumer) processMessage(ctx context.Context, workerID int) {
 	m, err := c.reader.FetchMessage(msgCtx)
 	if err != nil {
 		if isTransientError(err) {
-			c.logger.Warn("transient error, will retry",
-				zap.Int("worker_id", workerID),
-				zap.Error(err))
+			c.logger.Warn("Error transitorio, se reintentará", map[string]interface{}{
+				"worker_id": workerID,
+				"error":     err.Error(),
+			})
 			time.Sleep(2 * time.Second)
 			return
 		}
@@ -79,40 +86,45 @@ func (c *Consumer) processMessage(ctx context.Context, workerID int) {
 			return
 		}
 
-		c.logger.Error("failed to fetch message",
-			zap.Int("worker_id", workerID),
-			zap.Error(err))
+		c.logger.Error("Fallo al obtener mensaje de Kafka", map[string]interface{}{
+			"worker_id": workerID,
+			"error":     err.Error(),
+		})
 		return
 	}
 
 	var e domain.Event
 	if err := json.Unmarshal(m.Value, &e); err != nil {
-		c.logger.Error("invalid event json",
-			zap.Int("worker_id", workerID),
-			zap.Error(err),
-			zap.ByteString("raw", m.Value))
+		c.logger.Error("JSON de evento inválido", map[string]interface{}{
+			"worker_id": workerID,
+			"error":     err.Error(),
+			"raw":       string(m.Value),
+		})
 
 		// Commit para evitar procesar repetidamente mensajes inválidos
 		if err := c.reader.CommitMessages(ctx, m); err != nil {
-			c.logger.Error("commit after invalid message failed",
-				zap.Int("worker_id", workerID),
-				zap.Error(err))
+			c.logger.Error("Fallo al hacer commit después de mensaje inválido", map[string]interface{}{
+				"worker_id": workerID,
+				"error":     err.Error(),
+			})
 		}
 		return
 	}
 
-	c.logger.Info("processing event",
-		zap.Int("worker_id", workerID),
-		zap.String("event_type", e.Type),
-		zap.String("event_id", e.ID))
+	c.logger.Info("Procesando evento", map[string]interface{}{
+		"worker_id": workerID,
+		"event_type": e.Type,
+		"event_id":   e.ID,
+	})
 
 	// Procesar el evento
 	if err := c.processor.Process(ctx, &e); err != nil {
-		c.logger.Error("processing failed",
-			zap.Int("worker_id", workerID),
-			zap.Error(err),
-			zap.String("event_type", e.Type),
-			zap.String("event_id", e.ID))
+		c.logger.Error("Fallo al procesar evento", map[string]interface{}{
+			"worker_id": workerID,
+			"error":      err.Error(),
+			"event_type": e.Type,
+			"event_id":   e.ID,
+		})
 
 		// No commit para reintentar más tarde
 		time.Sleep(5 * time.Second)
@@ -121,13 +133,15 @@ func (c *Consumer) processMessage(ctx context.Context, workerID int) {
 
 	// Commit después de procesamiento exitoso
 	if err := c.reader.CommitMessages(ctx, m); err != nil {
-		c.logger.Error("commit failed",
-			zap.Int("worker_id", workerID),
-			zap.Error(err))
+		c.logger.Error("Fallo al hacer commit del mensaje", map[string]interface{}{
+			"worker_id": workerID,
+			"error":     err.Error(),
+		})
 	} else {
-		c.logger.Info("message committed successfully",
-			zap.Int("worker_id", workerID),
-			zap.String("event_id", e.ID))
+		c.logger.Info("Mensaje confirmado exitosamente", map[string]interface{}{
+			"worker_id": workerID,
+			"event_id":  e.ID,
+		})
 	}
 }
 
@@ -146,7 +160,7 @@ func isTransientError(err error) bool {
 }
 
 func (c *Consumer) Close() error {
-	c.logger.Info("closing kafka consumer")
+	c.logger.Info("Cerrando consumer de Kafka", nil)
 	close(c.shutdown)
 	return c.reader.Close()
 }

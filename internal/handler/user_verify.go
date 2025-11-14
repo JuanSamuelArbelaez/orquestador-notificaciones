@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/andrew/orquestador-notificacion/internal/domain"
+	"github.com/andrew/orquestador-notificacion/internal/logger"
 	"github.com/andrew/orquestador-notificacion/internal/service"
-	"go.uber.org/zap"
 )
 
 // Payload específico para el evento USER_VERIFIED
@@ -19,12 +19,12 @@ type UserVerifiedPayload struct {
 // Handler para USER_VERIFIED
 type UserVerifiedHandler struct {
 	userSvc service.UserService // inyección del servicio de negocio
-	logger  *zap.Logger
+	logger  *logger.Logger
 }
 
 // Constructor
-func NewUserVerifiedHandler(us service.UserService, logger *zap.Logger) *UserVerifiedHandler {
-	return &UserVerifiedHandler{userSvc: us, logger: logger}
+func NewUserVerifiedHandler(us service.UserService, log *logger.Logger) *UserVerifiedHandler {
+	return &UserVerifiedHandler{userSvc: us, logger: log}
 }
 
 // Tipos de eventos que maneja este handler
@@ -36,19 +36,26 @@ func (h *UserVerifiedHandler) Types() []string {
 func (h *UserVerifiedHandler) Handle(ctx context.Context, e *domain.Event) error {
 	var p UserVerifiedPayload
 	if err := e.DecodePayload(&p); err != nil {
+		h.logger.Error("Error al decodificar payload de USER_VERIFIED", map[string]interface{}{
+			"error": err.Error(),
+		})
 		return err
 	}
 
 	// Delegamos al UserService (por ejemplo, enviar email de cuenta verificada)
 	if err := h.userSvc.OnUserVerified(ctx, p.ID, p.Email, p.Name, p.Phone); err != nil {
-		h.logger.Error("user service failed", zap.Error(err))
+		h.logger.Error("Fallo en servicio de usuario para USER_VERIFIED", map[string]interface{}{
+			"error":   err.Error(),
+			"user_id": p.ID,
+			"email":   p.Email,
+		})
 		return err
 	}
 
-	h.logger.Info("processed USER_VERIFIED",
-		zap.Int("user_id", p.ID),
-		zap.String("email", p.Email),
-	)
+	h.logger.Info("Evento USER_VERIFIED procesado exitosamente", map[string]interface{}{
+		"user_id": p.ID,
+		"email":   p.Email,
+	})
 
 	return nil
 }

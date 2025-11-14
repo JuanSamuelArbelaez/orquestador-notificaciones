@@ -2,9 +2,10 @@ package handler
 
 import (
 	"context"
+
 	"github.com/andrew/orquestador-notificacion/internal/domain"
+	"github.com/andrew/orquestador-notificacion/internal/logger"
 	"github.com/andrew/orquestador-notificacion/internal/service"
-	"go.uber.org/zap"
 )
 
 type UserLoginPayload struct {
@@ -16,11 +17,11 @@ type UserLoginPayload struct {
 
 type UserLoginHandler struct {
 	userSvc service.UserService
-	logger  *zap.Logger
+	logger  *logger.Logger
 }
 
-func NewUserLoginHandler(us service.UserService, logger *zap.Logger) *UserLoginHandler {
-	return &UserLoginHandler{userSvc: us, logger: logger}
+func NewUserLoginHandler(us service.UserService, log *logger.Logger) *UserLoginHandler {
+	return &UserLoginHandler{userSvc: us, logger: log}
 }
 
 func (h *UserLoginHandler) Types() []string {
@@ -30,21 +31,36 @@ func (h *UserLoginHandler) Types() []string {
 func (h *UserLoginHandler) Handle(ctx context.Context, e *domain.Event) error {
 	var p UserLoginPayload
 	if err := e.DecodePayload(&p); err != nil {
+		h.logger.Error("Error al decodificar payload de USER_LOGIN", map[string]interface{}{
+			"error": err.Error(),
+		})
 		return err
 	}
 
 	// Notificación por EMAIL
 	if err := h.userSvc.SendNotification(ctx, p.ID, p.Email, p.Name, p.Phone, "EMAIL", "login_alert"); err != nil {
-		h.logger.Error("failed to send login email notification", zap.Error(err))
+		h.logger.Error("Fallo al enviar notificación de login por email", map[string]interface{}{
+			"error":   err.Error(),
+			"user_id": p.ID,
+			"email":   p.Email,
+		})
 		return err
 	}
 
 	// Notificación por SMS
 	if err := h.userSvc.SendNotification(ctx, p.ID, p.Email, p.Name, p.Phone, "SMS", "login_alert"); err != nil {
-		h.logger.Error("failed to send login sms notification", zap.Error(err))
+		h.logger.Error("Fallo al enviar notificación de login por SMS", map[string]interface{}{
+			"error":   err.Error(),
+			"user_id": p.ID,
+			"phone":   p.Phone,
+		})
 		return err
 	}
 
-	h.logger.Info("processed USER_LOGIN", zap.Int("user_id", p.ID), zap.String("email", p.Email), zap.String("phone", p.Phone))
+	h.logger.Info("Evento USER_LOGIN procesado exitosamente", map[string]interface{}{
+		"user_id": p.ID,
+		"email":   p.Email,
+		"phone":   p.Phone,
+	})
 	return nil
 }

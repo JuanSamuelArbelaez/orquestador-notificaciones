@@ -2,11 +2,10 @@ package handler
 
 import (
 	"context"
-	_ "fmt"
 
 	"github.com/andrew/orquestador-notificacion/internal/domain"
+	"github.com/andrew/orquestador-notificacion/internal/logger"
 	"github.com/andrew/orquestador-notificacion/internal/service"
-	"go.uber.org/zap"
 )
 
 type UserRegisteredPayload struct {
@@ -19,11 +18,11 @@ type UserRegisteredPayload struct {
 
 type UserRegisteredHandler struct {
 	userSvc service.UserService // interfaz para lógica de negocio (inyección)
-	logger  *zap.Logger
+	logger  *logger.Logger
 }
 
-func NewUserRegisteredHandler(us service.UserService, logger *zap.Logger) *UserRegisteredHandler {
-	return &UserRegisteredHandler{userSvc: us, logger: logger}
+func NewUserRegisteredHandler(us service.UserService, log *logger.Logger) *UserRegisteredHandler {
+	return &UserRegisteredHandler{userSvc: us, logger: log}
 }
 
 func (h *UserRegisteredHandler) Types() []string {
@@ -33,18 +32,26 @@ func (h *UserRegisteredHandler) Types() []string {
 func (h *UserRegisteredHandler) Handle(ctx context.Context, e *domain.Event) error {
 	var p UserRegisteredPayload
 	if err := e.DecodePayload(&p); err != nil {
+		h.logger.Error("Error al decodificar payload de USER_REGISTERED", map[string]interface{}{
+			"error": err.Error(),
+		})
 		return err
 	}
 
 	// Delegar la lógica de negocio al service (Single Responsibility)
 	if err := h.userSvc.OnUserRegistered(ctx, p.ID, p.Email, p.Name, p.Phone, p.Url); err != nil {
-		h.logger.Error("user service failed", zap.Error(err))
+		h.logger.Error("Fallo en servicio de usuario para USER_REGISTERED", map[string]interface{}{
+			"error":   err.Error(),
+			"user_id": p.ID,
+			"email":   p.Email,
+		})
 		return err
 	}
 
-	h.logger.Info("processed USER_REGISTERED",
-		zap.Int("user_id", p.ID),
-		zap.String("email", p.Email),
-		zap.String("url", p.Url))
+	h.logger.Info("Evento USER_REGISTERED procesado exitosamente", map[string]interface{}{
+		"user_id": p.ID,
+		"email":   p.Email,
+		"url":      p.Url,
+	})
 	return nil
 }

@@ -4,7 +4,6 @@ import (
 	"os"
 	"strings"
 
-	"go.uber.org/zap"
 	"github.com/andrew/orquestador-notificacion/internal/logger"
 )
 
@@ -15,31 +14,29 @@ type Config struct {
 }
 
 // LoadFromEnv carga configuración desde variables de entorno y usa logger estructurado
-func LoadFromEnv(serviceName string) Config {
-	log, err := logger.New(serviceName)
-	if err != nil {
-		panic("❌ No se pudo inicializar el logger: " + err.Error())
-	}
-
+func LoadFromEnv(loggerName string, log *logger.Logger) Config {
 	brokers := os.Getenv("KAFKA_BROKERS")
 	if brokers == "" {
 		brokers = "localhost:29092"
-		log.Warn("KAFKA_BROKERS no definido, usando valor por defecto",
-			zap.String("default", brokers))
+		log.Warn("KAFKA_BROKERS no definido, usando valor por defecto", map[string]interface{}{
+			"default": brokers,
+		})
 	}
 
 	topic := os.Getenv("KAFKA_CONSUMER_TOPIC")
 	if topic == "" {
 		topic = "user-events"
-		log.Warn("KAFKA_CONSUMER_TOPIC no definido, usando valor por defecto",
-			zap.String("default", topic))
+		log.Warn("KAFKA_CONSUMER_TOPIC no definido, usando valor por defecto", map[string]interface{}{
+			"default": topic,
+		})
 	}
 
 	groupID := os.Getenv("KAFKA_GROUP_ID")
 	if groupID == "" {
 		groupID = "kafka-listener-group"
-		log.Warn("KAFKA_GROUP_ID no definido, usando valor por defecto",
-			zap.String("default", groupID))
+		log.Warn("KAFKA_GROUP_ID no definido, usando valor por defecto", map[string]interface{}{
+			"default": groupID,
+		})
 	}
 
 	config := Config{
@@ -48,7 +45,11 @@ func LoadFromEnv(serviceName string) Config {
 		GroupID:      groupID,
 	}
 
-	log.Info("Configuración de Kafka cargada exitosamente", zap.Any("config", config))
+	log.Info("Configuración de Kafka cargada exitosamente", map[string]interface{}{
+		"brokers": config.KafkaBrokers,
+		"topic":   config.KafkaTopic,
+		"groupID": config.GroupID,
+	})
 
 	return config
 }
