@@ -50,14 +50,50 @@ func formatUptime(duration time.Duration) string {
 	}
 }
 
+type HealthCheck struct {
+	Data   map[string]interface{} `json:"data"`
+	Name   string                 `json:"name"`
+	Status string                 `json:"status"`
+}
+
+type HealthResponseWithChecks struct {
+	Status        string       `json:"status"`
+	Checks        []HealthCheck `json:"checks"`
+	Version       string       `json:"version"`
+	Uptime        string       `json:"uptime"`
+	UptimeSeconds int64        `json:"uptimeSeconds"`
+}
+
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	uptime := time.Since(startTime)
-	response := HealthResponse{
+	
+	checks := []HealthCheck{
+		{
+			Data: map[string]interface{}{
+				"from":   startTime.Format(time.RFC3339Nano),
+				"status": "READY",
+			},
+			Name:   "Readiness check",
+			Status: "UP",
+		},
+		{
+			Data: map[string]interface{}{
+				"from":   startTime.Format(time.RFC3339Nano),
+				"status": "ALIVE",
+			},
+			Name:   "Liveness check",
+			Status: "UP",
+		},
+	}
+	
+	response := HealthResponseWithChecks{
 		Status:        "UP",
+		Checks:        checks,
 		Version:       VERSION,
 		Uptime:        formatUptime(uptime),
 		UptimeSeconds: int64(uptime.Seconds()),
 	}
+	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(response)
